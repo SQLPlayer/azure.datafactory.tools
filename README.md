@@ -96,6 +96,7 @@ Publish-AdfV2FromJson
    [-Stage]               <String>
    [-Option]              <AdfPublishOption>
    [-Method]              <String>
+   [-DryRun]              <Switch>
 ```
 
 Assuming your ADF is named ```SQLPlayerDemo``` and the code is located in ```c:\GitHub\AdfName\```, replace the values for *SubscriptionName*, *ResourceGroupName*, *DataFactoryName* and run the following command using PowerShell CLI:

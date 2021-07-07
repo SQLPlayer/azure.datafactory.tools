@@ -31,6 +31,10 @@ This objects allows to define certain behaviour of deployment process. Use cmdle
 Optional parameter. Currently this cmdlet contains two method of publishing: AzDataFactory, AzResource (default).
 AzResource method has been introduced due to bugs in Az.DataFactory PS module.
 
+.PARAMETER DryRun
+Optional switch parameter. When provided, process will not make any changes to target data factory but instead return the ADF object
+that would be used in deployment.
+
 .EXAMPLE
 # Publish entire ADF
 $ResourceGroupName = 'rg-devops-factory'
@@ -66,6 +70,10 @@ Publish-AdfV2FromJson -RootFolder "$RootFolder" -ResourceGroupName "$ResourceGro
 # Publish entire ADF via Az.DataFactory module instead of Az.Resources
 Publish-AdfV2FromJson -RootFolder "$RootFolder" -ResourceGroupName "$ResourceGroupName" -DataFactoryName "$DataFactoryName" -Location "$Location" -Method "AzDataFactory"
 
+.EXAMPLE
+# Execute dry run of intended publishing changes
+Publish-AdfV2FromJson -RootFolder "$RootFolder" -ResourceGroupName "$ResourceGroupName" -DataFactoryName "$DataFactoryName" -Location "$Location" -Stage "UAT" -DryRun
+
 .LINK
 Online version: https://github.com/SQLPlayer/azure.datafactory.tools/
 #>
@@ -92,8 +100,11 @@ function Publish-AdfV2FromJson {
         [AdfPublishOption] $Option,
 
         [parameter(Mandatory = $false)] 
-        [ValidateSet('AzDataFactory','AzResource')] 
-        [String]$Method = 'AzResource'
+        [ValidateSet('AzDataFactory', 'AzResource')] 
+        [String]$Method = 'AzResource',
+
+        [parameter(Mandatory = $false)]
+        [switch]$DryRun
     )
 
     $m = Get-Module -Name "azure.datafactory.tools"
@@ -111,6 +122,7 @@ function Publish-AdfV2FromJson {
     Write-Host "Stage:              $Stage";
     Write-Host "Options provided:   $($null -ne $Option)";
     Write-Host "Publishing method:  $Method";
+    Write-Host "Is Dry Run?:        $($DryRun.IsPresent ? $true : $false)";
     Write-Host "======================================================================================";
 
     $script:StartTime = Get-Date
@@ -125,26 +137,34 @@ function Publish-AdfV2FromJson {
         $opt = New-AdfPublishOption
     }
     
-    Write-Host "STEP: Verifying whether ADF exists..."
-    $targetAdf = Get-AzDataFactoryV2 -ResourceGroupName "$ResourceGroupName" -Name "$DataFactoryName" -ErrorAction:Ignore
-    if ($targetAdf) {
-        Write-Host "Azure Data Factory exists."
-    } else {
-        $msg = "Azure Data Factory instance does not exist."
-        if ($opt.CreateNewInstance) {
-            Write-Host "$msg"
-            Write-Host "Creating a new instance of Azure Data Factory..."
-            $targetAdf = Set-AzDataFactoryV2 -ResourceGroupName "$ResourceGroupName" -Name "$DataFactoryName" -Location "$Location"
-            $targetAdf | Format-List | Out-String
-        } else {
-            Write-Host "Creation operation skipped as publish option 'CreateNewInstance' = false"
-            Write-Error "ADFT0027: $msg"
+    if (!$DryRun.IsPresent) {
+        Write-Host "STEP: Verifying whether ADF exists..."
+
+        $targetAdf = Get-AzDataFactoryV2 -ResourceGroupName "$ResourceGroupName" -Name "$DataFactoryName" -ErrorAction:Ignore
+        if ($targetAdf) {
+            Write-Host "Azure Data Factory exists."
+        }
+        else {
+            $msg = "Azure Data Factory instance does not exist."
+            if ($opt.CreateNewInstance) {
+                Write-Host "$msg"
+                Write-Host "Creating a new instance of Azure Data Factory..."
+                $targetAdf = Set-AzDataFactoryV2 -ResourceGroupName "$ResourceGroupName" -Name "$DataFactoryName" -Location "$Location"
+                $targetAdf | Format-List | Out-String
+            }
+            else {
+                Write-Host "Creation operation skipped as publish option 'CreateNewInstance' = false"
+                Write-Error "ADFT0027: $msg"
+            }
+        }
+
+        if ($null -eq $targetAdf) {
+            Write-Host "The process is exiting the function. Do fix the issue and run again."
+            return 
         }
     }
-
-    if ($null -eq $targetAdf) {
-        Write-Host "The process is exiting the function. Do fix the issue and run again."
-        return 
+    else {
+        Write-Host "DRY RUN: Skipping ADF existence verification..."
     }
 
     Write-Host "===================================================================================";
@@ -167,6 +187,12 @@ function Publish-AdfV2FromJson {
         Update-PropertiesFromFile -adf $adf -stage $Stage
     } else {
         Write-Host "Stage parameter was not provided - action skipped."
+    }
+
+    if ($DryRun.IsPresent) {
+        Write-Host "DRY RUN: Terminating script pre-deployment - inspect returned object to review planned changes."
+        Write-Host "===================================================================================";
+        return $adf
     }
 
     Write-Host "===================================================================================";
